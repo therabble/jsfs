@@ -16,7 +16,15 @@ var log        = require("./jlog.js");
 var CONSTANTS  = require("./lib/constants.js");
 var utils      = require("./lib/utils.js");
 var validate   = require("./lib/validate.js");
-var operations = require("./lib/" + (config.CONFIGURED_STORAGE || "fs") + "/disk-operations.js");
+var operations = {};
+for(var storage_location in config.STORAGE_LOCATIONS){
+  var selected_location = config.STORAGE_LOCATIONS[storage_location];
+  if (!operations[selected_location.storage]) { //don't require a storage type twice!
+    operations[selected_location.storage] = require("./lib/" + selected_location.storage + "/disk-operations.js");
+  }
+}
+
+
 
 // base storage object
 var Inode = require("./lib/inode.js");
