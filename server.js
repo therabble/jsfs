@@ -16,18 +16,20 @@ var log        = require("./jlog.js");
 var CONSTANTS  = require("./lib/constants.js");
 var utils      = require("./lib/utils.js");
 var validate   = require("./lib/validate.js");
+
 var operations = {};
+var operationsStorageByPath = {};
 for(var storage_location in config.STORAGE_LOCATIONS){
   var selected_location = config.STORAGE_LOCATIONS[storage_location];
   if (!operations[selected_location.storage]) { //don't require a storage type twice!
     operations[selected_location.storage] = require("./lib/" + selected_location.storage + "/disk-operations.js");
   }
+  operationsStorageByPath[selected_location.path] = selected_location.storage;
 }
-
-
 
 // base storage object
 var Inode = require("./lib/inode.js");
+const { KinesisVideoSignalingChannels } = require("aws-sdk");
 
 // get this now, rather than at several other points
 var TOTAL_LOCATIONS = config.STORAGE_LOCATIONS.length;
@@ -79,7 +81,8 @@ http.createServer(function(req, res){
         var requested_file = inode;
 
         // check authorization
-        if (inode.private){
+       if (inode.private){
+          log.message(log.DEBUG, "Server.js, line 85");
           if (validate.is_authorized(inode, req.method, params)) {
             log.message(log.INFO, "GET request authorized");
           } else {
@@ -109,23 +112,24 @@ http.createServer(function(req, res){
 
         var search_for_block = function search_for_block(_idx){
           var location = config.STORAGE_LOCATIONS[_idx];
+          var storage_location = location.storage;
           var search_path = location.path + requested_file.blocks[idx].block_hash;
           _idx++;
 
-          operations.exists(search_path + "gz", function(err, result){
+          operations[storage_location].exists(search_path + "gz", function(err, result){
             if (result) {
               log.message(log.INFO, "Found compressed block " + requested_file.blocks[idx].block_hash + ".gz in " + location.path);
               requested_file.blocks[idx].last_seen = location.path;
               utils.save_inode(requested_file, function(){
-                return read_file(search_path + ".gz", true);
+                return read_file(search_path + ".gz", true, storage_location);
               });
             } else {
-              operations.exists(search_path, function(_err, _result){
+              operations[storage_location].exists(search_path, function(_err, _result){
                 if (_result) {
                   log.message(log.INFO, "Found block " + requested_file.blocks[idx].block_hash + " in " + location.path);
                   requested_file.blocks[idx].last_seen = location.path;
                   utils.save_inode(requested_file, function(){
-                    return read_file(search_path, false);
+                    return read_file(search_path, false, storage_location);
                   });
 
                 } else {
@@ -143,8 +147,9 @@ http.createServer(function(req, res){
           });
         };
 
-        var read_file = function read_file(path, try_compressed){
-          var read_stream = operations.stream_read(path);
+        var read_file = function read_file(path, try_compressed, storage_location){
+          log.message(log.DEBUG, "beginning of read_file with storage_location " + storage_location);
+          var read_stream = operations[storage_location].stream_read(path);
           var decryptor   = create_decryptor({ encrypted : requested_file.encrypted, key : requested_file.access_key});
           var unzipper    = create_unzipper(try_compressed);
           var should_end  = (idx + 1) === total_blocks;
@@ -183,7 +188,17 @@ http.createServer(function(req, res){
           var sfx = try_compressed ? ".gz" : "";
           var block = requested_file.blocks[idx];
           var block_filename = block.last_seen + block.block_hash + sfx;
-          read_file(block_filename, try_compressed);
+          // log.message(log.DEBUG,"about to read file from block.last_seen of " + block.last_seen);
+          // log.message(log.DEBUG,"about to read file from config.STORAGE_INDEX_FOR_NEW_LAST_SEEN_PATHS of " + config.STORAGE_INDEX_FOR_NEW_LAST_SEEN_PATHS);
+          // log.message(log.DEBUG,"config.STORAGE_LOCATIONS[config.STORAGE_INDEX_FOR_NEW_LAST_SEEN_PATHS].path of " + config.STORAGE_LOCATIONS[config.STORAGE_INDEX_FOR_NEW_LAST_SEEN_PATHS].path);
+          // log.message(log.DEBUG,"about to read file from config.operationsStorageByPath[block.last_seen] of " + operationsStorageByPath[block.last_seen]);
+          // log.message(log.DEBUG,"operationsStorageByPath[config.STORAGE_LOCATIONS[config.STORAGE_INDEX_FOR_NEW_LAST_SEEN_PATHS].path]: " + operationsStorageByPath[config.STORAGE_LOCATIONS[config.STORAGE_INDEX_FOR_NEW_LAST_SEEN_PATHS].path]);
+          if (operationsStorageByPath[block.last_seen]) {
+            read_file(block_filename, try_compressed, operationsStorageByPath[block.last_seen]);
+          } else {
+            // apparently last seen in a location we don't know the path for, so we'll start with the path configured for all new last_seen paths.
+            read_file(block_filename, try_compressed, operationsStorageByPath[config.STORAGE_LOCATIONS[config.STORAGE_INDEX_FOR_NEW_LAST_SEEN_PATHS]]);
+          }
         };
 
         var send_blocks = function send_blocks(){
@@ -298,9 +313,10 @@ http.createServer(function(req, res){
 
             var remove_inode = function remove_inode(idx){
               var location = config.STORAGE_LOCATIONS[idx];
+              var storage_locaton = location.storage;
               var file     = location.path + inode.fingerprint + ".json";
 
-              operations.delete(file, function(err){
+              operations[storage_locaton].delete(file, function(err){
                 idx++;
                 if (err) {
                   log.message(log.WARN, "Inode " + inode.fingerprint + " doesn't exist in location " + location.path);
