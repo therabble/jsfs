@@ -64,8 +64,14 @@ http.createServer(function(req, res){
   // Moved these to an object to avoid possible issues from "private" being a reserved word
   // (for future use) and to avoid jslint errors from unimplemented param handlers.
   var params = utils.request_parameters(ACCEPTED_PARAMS, req.url, req.headers);
+  
+  // for (var varname in params) {
+  //   log.message(log.DEBUG, "param " + varname + " is: " + params[varname]);
+  // }
 
   log.message(log.INFO, "Received " + req.method + " request for URL " + target_url);
+  params.block_size = Number(params.block_size);
+  log.message(log.DEBUG, "block_size parameter recieved: " + params.block_size);
 
   // load requested inode
   switch(req.method){
@@ -244,7 +250,6 @@ http.createServer(function(req, res){
         // store the posted data at the specified URL
         var new_file = Object.create(Inode);
         new_file.init(target_url);
-        log.message(log.DEBUG, "New file object created");
 
         // set additional file properties (content-type, etc.)
         if(params.content_type){
@@ -257,6 +262,12 @@ http.createServer(function(req, res){
         if(params.encrypted){
           new_file.file_metadata.encrypted = true;
         }
+        if (params.block_size || params.block_size === 0) {
+          new_file.file_metadata.block_size = params.block_size;
+        } else {
+          new_file.file_metadata.block_size = config.BLOCK_SIZE;
+        }
+        log.message(log.DEBUG, "New file object created with block size: "+ new_file.file_metadata.block_size);
 
         // if access_key is supplied with update, replace the default one
         if(params.access_key){
