@@ -105,6 +105,14 @@ http.createServer(function(req, res){
           _idx++;
 
           operations.exists(search_path + "gz", function(err, result){
+
+            // JJG DEBUG
+            log.message(log.DEBUG, "JJG: back from head check of " + search_path);
+            log.message(log.DEBUG, "err");
+            console.log(err)
+            log.message(log.DEBUG, "result");
+            console.log(result);
+            
             if (result) {
               log.message(log.INFO, "Found compressed block " + requested_file.blocks[idx].block_hash + ".gz in " + location.path);
               requested_file.blocks[idx].last_seen = location.path;
