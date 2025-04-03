@@ -37,6 +37,9 @@
     "test": "./node_modules/.bin/mocha --reporter spec"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.654.0",
+    "aws-sdk-js-codemod": "^2.3.2",
+    "minio": "^8.0.1",
     "through": "2.3.8"
   },
   "devDependencies": {
